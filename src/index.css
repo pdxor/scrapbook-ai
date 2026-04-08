@@ -1,0 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Open+Sans:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+:root {
+  --color-primary: #546246;
+  --color-secondary: #404040;
+  --color-accent: #171717;
+  --color-accent-hover: #404040;
+  --color-background: #f5f5f5;
+  --color-card: #ffffff;
+  --color-text: #171717;
+  --color-text-secondary: #646464;
+  --color-text-muted: #8C8C8C;
+  --color-border: #D2D2D2;
+  --color-input-bg: #ffffff;
+  --color-input-focus-border: #171717;
+  --color-hover-bg: #F0F0F0;
+
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-bg-heavy: rgba(255, 255, 255, 0.88);
+  --glass-bg-sub: rgba(255, 255, 255, 0.45);
+  --glass-border: rgba(210, 210, 210, 0.6);
+  --glass-border-sub: rgba(210, 210, 210, 0.4);
+  --glass-blur: blur(24px);
+  --glass-blur-sub: blur(12px);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,0.08);
+  --glass-shadow-lg: 0 12px 48px rgba(0,0,0,0.12);
+  --glass-text: #171717;
+  --glass-text-secondary: #555555;
+  --glass-text-muted: #888888;
+
+  --sidebar-width: 220px;
+  --header-height: 48px;
+  --toolbar-height: 44px;
+  --timeline-height: 170px;
+  --composites-width: 240px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: 'Open Sans', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Lato', system-ui, sans-serif;
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr var(--sidebar-width);
+  grid-template-rows: var(--header-height) 1fr var(--toolbar-height) var(--timeline-height);
+  grid-template-areas:
+    "header     header     header"
+    "chars      canvas     right"
+    "chars      toolbar    right"
+    "composites storyboard storyboard";
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.app-grid.composites-expanded {
+  grid-template-areas:
+    "header     header     header"
+    "composites canvas     right"
+    "composites toolbar    right"
+    "composites storyboard storyboard";
+}
+
+.grid-header     { grid-area: header; }
+.grid-chars      { grid-area: chars; }
+.grid-canvas     { grid-area: canvas; }
+.grid-right      { grid-area: right; }
+.grid-toolbar    { grid-area: toolbar; }
+.grid-composites { grid-area: composites; }
+.grid-storyboard { grid-area: storyboard; }
+
+.composites-expanded-panel {
+  border-top: none;
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  color: var(--glass-text);
+}
+
+.glass-panel-heavy {
+  background: var(--glass-bg-heavy);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  color: var(--glass-text);
+}
+
+.glass-sub-panel {
+  background: var(--glass-bg-sub);
+  backdrop-filter: var(--glass-blur-sub);
+  -webkit-backdrop-filter: var(--glass-blur-sub);
+  border: 1px solid var(--glass-border-sub);
+  color: var(--glass-text);
+}
+
+.glass-card {
+  background: rgba(255,255,255,0.5);
+  border: 1px solid var(--glass-border-sub);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  color: var(--glass-text);
+}
+.glass-card:hover {
+  background: rgba(255,255,255,0.75);
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: scale(1.02);
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
