@@ -1,29 +1,10 @@
 import { Router } from 'express'
-import path from 'path'
-import fs from 'fs'
 import { supabase } from '../lib/supabase.js'
-
-const ASSETS_ROOT = path.resolve(process.cwd(), 'assets')
+import { downloadFromUrl } from '../lib/storage.js'
+import { processQueueOnce } from '../services/videoQueue.js'
 
 async function resolveFrameBuffer(dataUrl: string): Promise<Buffer> {
-  if (dataUrl.startsWith('data:image')) {
-    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
-    return Buffer.from(base64, 'base64')
-  }
-
-  if (dataUrl.startsWith('/api/asset-files/')) {
-    const relativePath = dataUrl.replace('/api/asset-files/', '')
-    const filePath = path.join(ASSETS_ROOT, relativePath)
-    return fs.promises.readFile(filePath)
-  }
-
-  if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
-    const resp = await fetch(dataUrl)
-    if (!resp.ok) throw new Error(`Failed to fetch image from ${dataUrl}`)
-    return Buffer.from(await resp.arrayBuffer())
-  }
-
-  throw new Error(`Unsupported frame format: ${dataUrl.substring(0, 50)}...`)
+  return downloadFromUrl(dataUrl)
 }
 
 export function videoRouter(): Router {
@@ -110,6 +91,9 @@ export function videoRouter(): Router {
   router.get('/batch/:batchId', async (req, res) => {
     try {
       const { batchId } = req.params
+
+      // Piggyback queue processing on poll requests (serverless-friendly)
+      processQueueOnce().catch(err => console.error('[videoQueue] background process error:', err))
 
       const { data: batch, error: batchErr } = await supabase
         .from('video_batches')

@@ -1,9 +1,8 @@
 import { Router } from 'express'
-import path from 'path'
-import fs from 'fs'
 import OpenAI from 'openai'
+import { uploadAssetBuffer } from '../lib/storage.js'
 
-export function generateRouter(assetsRoot: string): Router {
+export function generateRouter(): Router {
   const router = Router()
 
   router.post('/', async (req, res) => {
@@ -16,7 +15,7 @@ export function generateRouter(assetsRoot: string): Router {
 
       const apiKey = process.env.OPENAI_API_KEY
       if (!apiKey || apiKey === 'your-openai-api-key-here') {
-        res.status(500).json({ error: 'OPENAI_API_KEY not configured in .env' })
+        res.status(500).json({ error: 'OPENAI_API_KEY not configured' })
         return
       }
 
@@ -36,15 +35,10 @@ export function generateRouter(assetsRoot: string): Router {
       }
 
       const filename = `generated-${Date.now()}.png`
-      const filePath = path.join(assetsRoot, type, filename)
       const buffer = Buffer.from(imageData.b64_json, 'base64')
-      fs.writeFileSync(filePath, buffer)
+      const url = await uploadAssetBuffer(type, filename, buffer)
 
-      res.json({
-        filename,
-        url: `/api/asset-files/${type}/${filename}`,
-        type,
-      })
+      res.json({ filename, url, type })
     } catch (err: any) {
       console.error('Generation error:', err)
       res.status(500).json({ error: err.message || 'Generation failed' })

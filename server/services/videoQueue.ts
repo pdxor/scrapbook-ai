@@ -251,6 +251,12 @@ async function pollPendingJobs() {
   }
 }
 
+export async function processQueueOnce() {
+  if (backoffMs > 0) return
+  await submitNextJob()
+  await pollPendingJobs()
+}
+
 export function startVideoQueue() {
   console.log(`[videoQueue] starting with concurrency=${CONCURRENCY}`)
 

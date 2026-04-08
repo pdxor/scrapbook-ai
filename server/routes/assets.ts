@@ -1,49 +1,29 @@
 import { Router } from 'express'
 import multer from 'multer'
-import path from 'path'
-import fs from 'fs'
+import { listAssets, uploadAssetBuffer, deleteAssetFile } from '../lib/storage.js'
 
 const VALID_TYPES = ['characters', 'objects', 'backgrounds', 'composites', 'storyboards']
-const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
 
-export function assetsRouter(assetsRoot: string): Router {
+export function assetsRouter(): Router {
   const router = Router()
+  const upload = multer({ storage: multer.memoryStorage() })
 
-  const storage = multer.diskStorage({
-    destination: (req, _file, cb) => {
-      const type = req.params.type
-      cb(null, path.join(assetsRoot, type))
-    },
-    filename: (_req, file, cb) => {
-      cb(null, file.originalname)
-    },
-  })
-  const upload = multer({ storage })
-
-  router.get('/:type', (req, res) => {
+  router.get('/:type', async (req, res) => {
     const { type } = req.params
     if (!VALID_TYPES.includes(type)) {
       res.status(400).json({ error: 'Invalid asset type' })
       return
     }
-    const dir = path.join(assetsRoot, type)
-    const files = fs.readdirSync(dir).filter(f => IMAGE_EXTS.includes(path.extname(f).toLowerCase()))
-
-    const filesWithTime = files.map(filename => ({
-      filename,
-      mtime: fs.statSync(path.join(dir, filename)).mtimeMs,
-    }))
-    filesWithTime.sort((a, b) => b.mtime - a.mtime)
-
-    const assets = filesWithTime.map(({ filename }) => ({
-      filename,
-      url: `/api/asset-files/${type}/${filename}`,
-      type,
-    }))
-    res.json(assets)
+    try {
+      const assets = await listAssets(type)
+      res.json(assets)
+    } catch (err: any) {
+      console.error(`List assets error (${type}):`, err.message)
+      res.status(500).json({ error: err.message })
+    }
   })
 
-  router.post('/:type', upload.single('file'), (req, res) => {
+  router.post('/:type', upload.single('file'), async (req, res) => {
     const { type } = req.params
     if (!VALID_TYPES.includes(type)) {
       res.status(400).json({ error: 'Invalid asset type' })
@@ -53,26 +33,28 @@ export function assetsRouter(assetsRoot: string): Router {
       res.status(400).json({ error: 'No file provided' })
       return
     }
-    res.json({
-      filename: req.file.filename,
-      url: `/api/asset-files/${type}/${req.file.filename}`,
-      type,
-    })
+    try {
+      const url = await uploadAssetBuffer(type, req.file.originalname, req.file.buffer, req.file.mimetype)
+      res.json({ filename: req.file.originalname, url, type })
+    } catch (err: any) {
+      console.error(`Upload asset error (${type}):`, err.message)
+      res.status(500).json({ error: err.message })
+    }
   })
 
-  router.delete('/:type/:filename', (req, res) => {
+  router.delete('/:type/:filename', async (req, res) => {
     const { type, filename } = req.params
     if (!VALID_TYPES.includes(type)) {
       res.status(400).json({ error: 'Invalid asset type' })
       return
     }
-    const filePath = path.join(assetsRoot, type, filename)
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: 'File not found' })
-      return
+    try {
+      await deleteAssetFile(type, filename)
+      res.json({ success: true })
+    } catch (err: any) {
+      console.error(`Delete asset error:`, err.message)
+      res.status(500).json({ error: err.message })
     }
-    fs.unlinkSync(filePath)
-    res.json({ success: true })
   })
 
   return router

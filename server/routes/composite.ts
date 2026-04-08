@@ -1,9 +1,8 @@
 import { Router } from 'express'
 import sharp from 'sharp'
-import path from 'path'
-import fs from 'fs'
 import OpenAI from 'openai'
 import { removeBackground } from '../utils/bgRemover.js'
+import { uploadAssetBuffer, downloadFromUrl } from '../lib/storage.js'
 
 interface ElementPayload {
   assetUrl: string
@@ -25,14 +24,6 @@ interface PipelineRequest {
 
 const CANVAS_WIDTH = 1024
 const DEFAULT_HEIGHT = 576
-
-function urlToAssetPath(url: string, assetsRoot: string): string {
-  const prefix = '/api/asset-files/'
-  if (url.startsWith(prefix)) {
-    return path.join(assetsRoot, url.slice(prefix.length))
-  }
-  throw new Error(`Cannot resolve asset path: ${url}`)
-}
 
 function buildPolishPrompt(userDirection?: string): string {
   const lines = [
@@ -64,10 +55,6 @@ function buildPolishPrompt(userDirection?: string): string {
   return lines.join('\n')
 }
 
-/**
- * Build a contact-shadow PNG from a foreground element's alpha channel.
- * Returns a black silhouette at 30% opacity, blurred for soft falloff.
- */
 async function buildShadow(
   elementBuffer: Buffer,
   blurSigma: number,
@@ -91,7 +78,7 @@ async function buildShadow(
     .toBuffer()
 }
 
-export function compositeRouter(assetsRoot: string): Router {
+export function compositeRouter(): Router {
   const router = Router()
 
   router.post('/pipeline', async (req, res) => {
@@ -108,14 +95,10 @@ export function compositeRouter(assetsRoot: string): Router {
       let canvasHeight: number
 
       if (backgroundUrl) {
-        const bgPath = urlToAssetPath(backgroundUrl, assetsRoot)
-        if (!fs.existsSync(bgPath)) {
-          res.status(404).json({ error: 'Background image not found' })
-          return
-        }
-        const bgMeta = await sharp(bgPath).metadata()
+        const bgRaw = await downloadFromUrl(backgroundUrl)
+        const bgMeta = await sharp(bgRaw).metadata()
         canvasHeight = Math.round(CANVAS_WIDTH * (bgMeta.height! / bgMeta.width!))
-        bgBuffer = await sharp(bgPath)
+        bgBuffer = await sharp(bgRaw)
           .resize(CANVAS_WIDTH, canvasHeight, { fit: 'fill' })
           .ensureAlpha()
           .png()
@@ -135,14 +118,12 @@ export function compositeRouter(assetsRoot: string): Router {
       for (const el of elements) {
         let elBuffer: Buffer
         try {
-          const elPath = urlToAssetPath(el.assetUrl, assetsRoot)
-          elBuffer = fs.readFileSync(elPath)
-        } catch {
-          console.warn(`[composite] Skipping element, file not found: ${el.assetUrl}`)
+          elBuffer = await downloadFromUrl(el.assetUrl)
+        } catch (err: any) {
+          console.warn(`[composite] Skipping element, download failed: ${el.assetUrl} — ${err.message}`)
           continue
         }
 
-        // Auto-orient only if EXIF says so (matches browser's auto-orientation)
         const meta = await sharp(elBuffer).metadata()
         if (meta.orientation && meta.orientation > 1) {
           elBuffer = await sharp(elBuffer).rotate().png().toBuffer()
@@ -155,7 +136,6 @@ export function compositeRouter(assetsRoot: string): Router {
 
         console.log(`[composite] Element transforms: flipH=${el.flipH}, flipV=${el.flipV}, rotation=${el.rotation}`)
 
-        // Each transform in its own pipeline to avoid sharp's internal reordering
         let buf = await sharp(cleanBuffer)
           .resize(targetW, targetH, { fit: 'fill' })
           .png()
@@ -188,7 +168,6 @@ export function compositeRouter(assetsRoot: string): Router {
         const offsetX = Math.round(el.x - (rotW - targetW) / 2)
         const offsetY = Math.round(el.y - (rotH - targetH) / 2)
 
-        // Shadow layer (placed before the element so it renders underneath)
         const shadowSigma = Math.max(3, Math.round(el.height * 0.04))
         const shadowPng = await buildShadow(processedBuffer, shadowSigma)
         const shadowOffsetY = offsetY + Math.round(el.height * 0.03)
@@ -200,7 +179,6 @@ export function compositeRouter(assetsRoot: string): Router {
           blend: 'over' as const,
         })
 
-        // Element layer
         layers.push({
           input: processedBuffer,
           left: Math.max(0, offsetX),
@@ -216,15 +194,13 @@ export function compositeRouter(assetsRoot: string): Router {
         .png()
         .toBuffer()
 
-      // Save the deterministic composite
       const placedFilename = `placed-${Date.now()}.png`
-      const placedPath = path.join(assetsRoot, 'composites', placedFilename)
-      fs.writeFileSync(placedPath, composedBuffer)
+      const placedUrl = await uploadAssetBuffer('composites', placedFilename, composedBuffer)
       console.log(`[composite] Stage 2 saved: ${placedFilename}`)
 
       if (!refine) {
         res.json({
-          url: `/api/asset-files/composites/${placedFilename}`,
+          url: placedUrl,
           filename: placedFilename,
           stage: 'placed',
         })
@@ -241,10 +217,10 @@ export function compositeRouter(assetsRoot: string): Router {
       const openai = new OpenAI({ apiKey })
       const refinementPrompt = buildPolishPrompt(prompt)
 
-      const aspectRatio = CANVAS_WIDTH / canvasHeight
+      const ar = CANVAS_WIDTH / canvasHeight
       const outputSize: '1024x1024' | '1536x1024' | '1024x1536' =
-        aspectRatio > 1.2 ? '1536x1024' :
-        aspectRatio < 0.8 ? '1024x1536' :
+        ar > 1.2 ? '1536x1024' :
+        ar < 0.8 ? '1024x1536' :
         '1024x1024'
 
       console.log(`[composite] Stage 3: AI polish (${outputSize})`)
@@ -266,15 +242,14 @@ export function compositeRouter(assetsRoot: string): Router {
       }
 
       const refinedFilename = `refined-${Date.now()}.png`
-      const refinedPath = path.join(assetsRoot, 'composites', refinedFilename)
       const refinedBuffer = Buffer.from(imageData.b64_json, 'base64')
-      fs.writeFileSync(refinedPath, refinedBuffer)
+      const refinedUrl = await uploadAssetBuffer('composites', refinedFilename, refinedBuffer)
       console.log(`[composite] Stage 3 saved: ${refinedFilename}`)
 
       res.json({
-        url: `/api/asset-files/composites/${refinedFilename}`,
+        url: refinedUrl,
         filename: refinedFilename,
-        placedUrl: `/api/asset-files/composites/${placedFilename}`,
+        placedUrl,
         stage: 'refined',
       })
     } catch (err: any) {

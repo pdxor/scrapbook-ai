@@ -25,6 +25,7 @@
     "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "^19.2.4",
     "react-konva": "^19.2.3",
+    "serverless-http": "^4.0.0",
     "sharp": "^0.34.5",
     "tsx": "^4.21.0",
     "uuid": "^13.0.0"

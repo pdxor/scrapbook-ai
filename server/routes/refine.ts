@@ -1,10 +1,9 @@
 import { Router } from 'express'
 import multer from 'multer'
-import path from 'path'
-import fs from 'fs'
 import sharp from 'sharp'
 import OpenAI from 'openai'
 import { generateBackdropMask } from '../utils/maskGenerator.js'
+import { uploadAssetBuffer } from '../lib/storage.js'
 
 function buildRefinementPrompt(userDirection: string, masked: boolean): string {
   const lines = [
@@ -83,7 +82,7 @@ function buildRefinementPrompt(userDirection: string, masked: boolean): string {
   return lines.join('\n')
 }
 
-export function refineRouter(assetsRoot: string): Router {
+export function refineRouter(): Router {
   const router = Router()
   const upload = multer({ storage: multer.memoryStorage() })
 
@@ -104,7 +103,6 @@ export function refineRouter(assetsRoot: string): Router {
 
       const openai = new OpenAI({ apiKey })
 
-      // Detect image dimensions to pick the right output size
       const metadata = await sharp(req.file.buffer).metadata()
       const imgWidth = metadata.width || 1024
       const imgHeight = metadata.height || 576
@@ -114,7 +112,6 @@ export function refineRouter(assetsRoot: string): Router {
         aspectRatio < 0.8 ? '1024x1536' :
         '1024x1024'
 
-      // Generate auto-mask from green screen / solid backdrops
       const { maskBuffer, compositeMaskBuffer, hasEditableRegions, editPercent } = await generateBackdropMask(req.file.buffer)
       console.log(`Mask generated: ${editPercent.toFixed(1)}% editable, hasRegions=${hasEditableRegions}`)
 
@@ -153,8 +150,6 @@ export function refineRouter(assetsRoot: string): Router {
 
       const aiBuffer = Buffer.from(imageData.b64_json, 'base64')
 
-      // 2-PASS COMPOSITE: paste original subject pixels back over AI result.
-      // The AI never touches the character — we guarantee pixel-perfect identity.
       let buffer: Buffer
       if (hasEditableRegions) {
         console.log('Compositing original subject back over AI result (2-pass pipeline)')
@@ -182,7 +177,7 @@ export function refineRouter(assetsRoot: string): Router {
 
         for (let i = 0; i < totalPx; i++) {
           const rgbaOff = i * 4
-          const blend = maskData[i] / 255 // 0 = use original, 1 = use AI
+          const blend = maskData[i] / 255
           finalPixels[rgbaOff]     = Math.round(originalRaw[rgbaOff]     * (1 - blend) + aiResized[rgbaOff]     * blend)
           finalPixels[rgbaOff + 1] = Math.round(originalRaw[rgbaOff + 1] * (1 - blend) + aiResized[rgbaOff + 1] * blend)
           finalPixels[rgbaOff + 2] = Math.round(originalRaw[rgbaOff + 2] * (1 - blend) + aiResized[rgbaOff + 2] * blend)
@@ -197,15 +192,10 @@ export function refineRouter(assetsRoot: string): Router {
       }
 
       const filename = `refined-${Date.now()}.png`
-      const filePath = path.join(assetsRoot, 'composites', filename)
-      fs.writeFileSync(filePath, buffer)
-
-      // Also save the mask for debugging
-      const maskPath = path.join(assetsRoot, 'composites', `mask-${Date.now()}.png`)
-      fs.writeFileSync(maskPath, maskBuffer)
+      const url = await uploadAssetBuffer('composites', filename, buffer)
 
       res.json({
-        url: `/api/asset-files/composites/${filename}`,
+        url,
         filename,
         masked: hasEditableRegions,
         editPercent: parseFloat(editPercent.toFixed(1)),
