@@ -33,8 +33,8 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-export function VideoDashboard({ jobs, isPolling, onRetry, onCancel, onCancelAll, onPlay, onClose }: VideoDashboardProps) {
-  const [collapsed, setCollapsed] = useState(false)
+export function VideoDashboard({ jobs, isPolling: _isPolling, onRetry, onCancel, onCancelAll, onPlay, onClose: _onClose }: VideoDashboardProps) {
+  const [collapsed, _setCollapsed] = useState(false)
 
   const counts = {
     done: jobs.filter(j => j.status === 'done').length,
