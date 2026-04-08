@@ -2,10 +2,32 @@ import { supabase } from '../lib/supabase.js'
 
 const XAI_BASE = 'https://api.x.ai/v1'
 const CONCURRENCY = parseInt(process.env.VIDEO_CONCURRENCY || '2', 10)
-const SUBMIT_INTERVAL_MS = 5_000
-const POLL_INTERVAL_MS = 10_000
+const SUBMIT_INTERVAL_MS = 15_000
+const POLL_INTERVAL_MS = 30_000
 
-let backoffMs = 0
+// Timestamp-based backoff: ignore all work until this time
+let backoffUntil = 0
+
+function isBackedOff(): boolean {
+  return Date.now() < backoffUntil
+}
+
+function applyBackoff(resp?: Response) {
+  let waitMs: number
+
+  const retryAfter = resp?.headers.get('retry-after')
+  if (retryAfter) {
+    const secs = parseInt(retryAfter, 10)
+    waitMs = isNaN(secs) ? 60_000 : (secs + 5) * 1000
+  } else {
+    const currentWait = Math.max(backoffUntil - Date.now(), 0)
+    waitMs = Math.max(currentWait * 2, 60_000)
+  }
+
+  const capped = Math.min(waitMs, 600_000)
+  backoffUntil = Date.now() + capped
+  console.warn(`[videoQueue] rate limited — backing off ${Math.round(capped / 1000)}s until ${new Date(backoffUntil).toISOString()}`)
+}
 
 function getApiKey(): string {
   const key = process.env.GROK_API_KEY
@@ -18,14 +40,40 @@ function getPublicImageUrl(storagePath: string): string {
   return data.publicUrl
 }
 
-async function recoverCrashedJobs() {
-  const { error } = await supabase
+async function cleanupStaleJobs() {
+  const now = new Date()
+
+  // Reset any stuck 'submitting' jobs back to queued
+  const { error: submitErr } = await supabase
     .from('video_jobs')
-    .update({ status: 'queued', updated_at: new Date().toISOString() })
+    .update({ status: 'queued', updated_at: now.toISOString() })
     .eq('status', 'submitting')
 
-  if (error) console.error('[videoQueue] crash recovery error:', error.message)
+  if (submitErr) console.error('[videoQueue] crash recovery error:', submitErr.message)
   else console.log('[videoQueue] crash recovery: reset submitting jobs to queued')
+
+  // Expire pending jobs older than 30 minutes (xAI requests don't last forever)
+  const staleDate = new Date(now.getTime() - 30 * 60_000).toISOString()
+  const { data: stalePending, error: staleErr } = await supabase
+    .from('video_jobs')
+    .select('id')
+    .eq('status', 'pending')
+    .lt('updated_at', staleDate)
+
+  if (!staleErr && stalePending && stalePending.length > 0) {
+    for (const job of stalePending) {
+      await supabase
+        .from('video_jobs')
+        .update({
+          status: 'failed',
+          error_message: 'Expired — pending too long without completion',
+          progress: 0,
+          updated_at: now.toISOString(),
+        })
+        .eq('id', job.id)
+    }
+    console.log(`[videoQueue] expired ${stalePending.length} stale pending jobs (>30min old)`)
+  }
 }
 
 async function countInflight(): Promise<number> {
@@ -42,7 +90,7 @@ async function countInflight(): Promise<number> {
 }
 
 async function submitNextJob() {
-  if (backoffMs > 0) return
+  if (isBackedOff()) return
 
   const inflight = await countInflight()
   if (inflight >= CONCURRENCY) return
@@ -75,7 +123,6 @@ async function submitNextJob() {
       resolution: job.resolution,
     }
 
-    // For stills-compilation jobs, send ALL frames as reference_images (R2V mode)
     if (job.frame_title === 'stills-compilation') {
       const { data: batch } = await supabase
         .from('video_batches')
@@ -105,13 +152,11 @@ async function submitNextJob() {
     })
 
     if (resp.status === 429) {
-      backoffMs = Math.min((backoffMs || 10_000) * 2, 120_000)
-      console.warn(`[videoQueue] rate limited, backing off ${backoffMs / 1000}s`)
+      applyBackoff(resp)
       await supabase
         .from('video_jobs')
         .update({ status: 'queued', updated_at: new Date().toISOString() })
         .eq('id', job.id)
-      setTimeout(() => { backoffMs = 0 }, backoffMs)
       return
     }
 
@@ -119,6 +164,9 @@ async function submitNextJob() {
       const errBody = await resp.text()
       throw new Error(`xAI API ${resp.status}: ${errBody}`)
     }
+
+    // Successful API call — clear backoff
+    backoffUntil = 0
 
     const data = await resp.json()
     const requestId = data.request_id
@@ -149,6 +197,8 @@ async function submitNextJob() {
 }
 
 async function pollPendingJobs() {
+  if (isBackedOff()) return
+
   const { data: jobs, error } = await supabase
     .from('video_jobs')
     .select('*')
@@ -157,6 +207,7 @@ async function pollPendingJobs() {
   if (error || !jobs || jobs.length === 0) return
 
   for (const job of jobs) {
+    if (isBackedOff()) return
     if (!job.xai_request_id) continue
 
     try {
@@ -165,16 +216,29 @@ async function pollPendingJobs() {
       })
 
       if (resp.status === 429) {
-        backoffMs = Math.min((backoffMs || 10_000) * 2, 120_000)
-        console.warn(`[videoQueue] poll rate limited, backing off ${backoffMs / 1000}s`)
-        setTimeout(() => { backoffMs = 0 }, backoffMs)
+        applyBackoff(resp)
         return
       }
 
       if (!resp.ok) {
         console.error(`[videoQueue] poll error ${resp.status} for job ${job.id}`)
+        if (resp.status === 404) {
+          await supabase
+            .from('video_jobs')
+            .update({
+              status: 'failed',
+              error_message: `xAI request ${job.xai_request_id} not found (404) — may have expired`,
+              progress: 0,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id)
+          console.log(`[videoQueue] marked job ${job.id} as failed (404 — request not found)`)
+        }
         continue
       }
+
+      // Successful API call — clear backoff
+      backoffUntil = 0
 
       const data = await resp.json()
       const progress = data.progress ?? job.progress
@@ -252,21 +316,46 @@ async function pollPendingJobs() {
 }
 
 export async function processQueueOnce() {
-  if (backoffMs > 0) return
+  if (isBackedOff()) {
+    console.log(`[videoQueue] backed off until ${new Date(backoffUntil).toISOString()}, skipping`)
+    return
+  }
+
+  // Recover stuck submitting jobs (>60s old)
+  const { data: stuckJobs } = await supabase
+    .from('video_jobs')
+    .select('id, updated_at')
+    .eq('status', 'submitting')
+
+  if (stuckJobs && stuckJobs.length > 0) {
+    const staleThresholdMs = 60_000
+    const now = Date.now()
+    for (const sj of stuckJobs) {
+      const age = now - new Date(sj.updated_at).getTime()
+      if (age > staleThresholdMs) {
+        await supabase
+          .from('video_jobs')
+          .update({ status: 'queued', updated_at: new Date().toISOString() })
+          .eq('id', sj.id)
+        console.log(`[videoQueue] recovered stuck job ${sj.id} (stuck for ${Math.round(age / 1000)}s)`)
+      }
+    }
+  }
+
   await submitNextJob()
   await pollPendingJobs()
 }
 
 export function startVideoQueue() {
-  console.log(`[videoQueue] starting with concurrency=${CONCURRENCY}`)
+  console.log(`[videoQueue] starting with concurrency=${CONCURRENCY}, submit=${SUBMIT_INTERVAL_MS / 1000}s, poll=${POLL_INTERVAL_MS / 1000}s`)
 
-  recoverCrashedJobs()
+  cleanupStaleJobs()
 
   setInterval(() => {
-    if (backoffMs === 0) submitNextJob()
+    if (!isBackedOff()) submitNextJob()
   }, SUBMIT_INTERVAL_MS)
 
   setInterval(() => {
-    if (backoffMs === 0) pollPendingJobs()
+    if (!isBackedOff()) pollPendingJobs()
   }, POLL_INTERVAL_MS)
 }

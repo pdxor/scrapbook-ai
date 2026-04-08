@@ -16,7 +16,7 @@ export function SavedComposites({ composites, loading, expanded, onToggleExpand,
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--color-border)] shrink-0">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] font-[Lato]">
+        <h3 className="text-[15px] font-bold uppercase tracking-wider text-white bg-black px-3 py-1 rounded-r-full font-[Lato]">
           Saved Composites ({filtered.length})
         </h3>
         <button

@@ -37,6 +37,9 @@ function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [bottomTab, setBottomTab] = useState<TabId>('storyboard')
   const [compositesExpanded, setCompositesExpanded] = useState(false)
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [bottomCollapsed, setBottomCollapsed] = useState(false)
   const [lightbox, setLightbox] = useState<{ images: { url: string; label?: string }[]; currentIndex: number } | null>(null)
 
   const openLightbox = useCallback((images: { url: string; label?: string }[], startIndex: number) => {
@@ -172,7 +175,7 @@ function App() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className={`app-grid ${compositesExpanded ? 'composites-expanded' : ''}`}>
+      <div className={`app-grid ${compositesExpanded ? 'composites-expanded' : ''} ${leftCollapsed ? 'left-collapsed' : ''} ${rightCollapsed ? 'right-collapsed' : ''} ${bottomCollapsed ? 'bottom-collapsed' : ''}`}>
         {/* HEADER */}
         <header className="grid-header glass-panel-heavy flex items-center justify-between px-5 border-b border-[var(--color-border)] z-10">
           <div className="flex items-center gap-3">
@@ -181,7 +184,7 @@ function App() {
         </header>
 
         {/* LEFT: Characters (hidden when composites expanded) */}
-        <div className={`grid-chars glass-panel border-r border-[var(--color-border)] overflow-hidden flex flex-col ${compositesExpanded ? 'hidden' : ''}`}>
+        <div className={`grid-chars glass-panel border-r border-[var(--color-border)] overflow-hidden flex flex-col pr-1 ${compositesExpanded || leftCollapsed ? 'hidden' : ''}`}>
           <AssetGallery
             type="characters"
             label="Characters"
@@ -216,10 +219,36 @@ function App() {
               />
             </div>
           )}
+
+          {/* Panel toggle buttons */}
+          <button
+            onClick={() => setLeftCollapsed(c => !c)}
+            className="panel-collapse-btn"
+            style={{ left: 6, top: '50%', transform: 'translateY(-50%)' }}
+            title={leftCollapsed ? 'Show left panel' : 'Hide left panel'}
+          >
+            {leftCollapsed ? '▶' : '◀'}
+          </button>
+          <button
+            onClick={() => setRightCollapsed(c => !c)}
+            className="panel-collapse-btn"
+            style={{ right: 6, top: '50%', transform: 'translateY(-50%)' }}
+            title={rightCollapsed ? 'Show right panel' : 'Hide right panel'}
+          >
+            {rightCollapsed ? '◀' : '▶'}
+          </button>
+          <button
+            onClick={() => setBottomCollapsed(c => !c)}
+            className="panel-collapse-btn"
+            style={{ bottom: 6, left: '50%', transform: 'translateX(-50%)' }}
+            title={bottomCollapsed ? 'Show bottom panel' : 'Hide bottom panel'}
+          >
+            {bottomCollapsed ? '▲' : '▼'}
+          </button>
         </div>
 
         {/* RIGHT: Objects + Backgrounds */}
-        <div className="grid-right glass-panel border-l border-[var(--color-border)] overflow-hidden flex flex-col">
+        <div className={`grid-right glass-panel border-l border-[var(--color-border)] overflow-hidden flex flex-col pl-1 ${rightCollapsed ? 'hidden' : ''}`}>
           <div className="flex-[55] min-h-0 overflow-hidden flex flex-col border-b border-[var(--color-border)]">
             <AssetGallery
               type="objects"
@@ -331,7 +360,7 @@ function App() {
         </div>
 
         {/* SAVED COMPOSITES (bottom-left, or full left when expanded) */}
-        <div className={`grid-composites glass-panel-heavy border-r border-[var(--color-border)] overflow-hidden z-20 ${compositesExpanded ? 'composites-expanded-panel' : 'border-t'}`}>
+        <div className={`grid-composites glass-panel-heavy border-r border-[var(--color-border)] overflow-hidden z-20 ${compositesExpanded ? 'composites-expanded-panel' : 'border-t'} ${bottomCollapsed && !compositesExpanded ? 'hidden' : ''}`}>
           <SavedComposites
             composites={composites.assets}
             loading={composites.loading}
@@ -344,7 +373,7 @@ function App() {
         </div>
 
         {/* BOTTOM: Tabbed panel */}
-        <div className="grid-storyboard glass-panel-heavy border-t border-[var(--color-border)] overflow-hidden z-10">
+        <div className={`grid-storyboard glass-panel-heavy border-t border-[var(--color-border)] overflow-hidden z-10 ${bottomCollapsed ? 'hidden' : ''}`}>
           <BottomPanel
             activeTab={bottomTab}
             onTabChange={setBottomTab}

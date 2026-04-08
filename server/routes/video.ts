@@ -81,6 +81,9 @@ export function videoRouter(): Router {
         return
       }
 
+      // Kick off queue processing immediately so serverless picks up jobs
+      try { await processQueueOnce() } catch (e) { console.error('[videoQueue] post-batch process error:', e) }
+
       res.json({ batchId: batch.id, jobCount: frames.length })
     } catch (err: any) {
       console.error('Batch creation error:', err)
@@ -92,8 +95,12 @@ export function videoRouter(): Router {
     try {
       const { batchId } = req.params
 
-      // Piggyback queue processing on poll requests (serverless-friendly)
-      processQueueOnce().catch(err => console.error('[videoQueue] background process error:', err))
+      // Await queue processing so serverless functions don't terminate before it completes
+      try {
+        await processQueueOnce()
+      } catch (err) {
+        console.error('[videoQueue] background process error:', err)
+      }
 
       const { data: batch, error: batchErr } = await supabase
         .from('video_batches')
@@ -330,6 +337,9 @@ export function videoRouter(): Router {
       }
 
       console.log(`[stills-to-video] Created batch ${batch.id} with ${frames.length} individual frames`)
+
+      // Kick off queue processing immediately so serverless picks up jobs
+      try { await processQueueOnce() } catch (e) { console.error('[videoQueue] post-stills process error:', e) }
 
       res.json({ batchId: batch.id, jobId: job.id })
     } catch (err: any) {

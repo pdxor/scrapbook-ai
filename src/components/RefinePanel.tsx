@@ -80,7 +80,7 @@ export function RefinePanel({ open, onClose, onRefined, onAddToTimeline, element
   const usePipeline = elements.length > 0
 
   const [refining, setRefining] = useState(false)
-  const [mode, setMode] = useState<PipelineMode | LegacyMode>(usePipeline ? 'polish' : 'blend')
+  const [mode, setMode] = useState<PipelineMode | LegacyMode>(usePipeline ? 'compose' : 'blend')
   const [customPrompt, setCustomPrompt] = useState('')
   const [preview, setPreview] = useState<string | null>(null)
   const [placedPreview, setPlacedPreview] = useState<string | null>(null)
@@ -93,7 +93,7 @@ export function RefinePanel({ open, onClose, onRefined, onAddToTimeline, element
     if (open) {
       const getDataUrl = (window as any).__canvasGetDataUrl
       if (getDataUrl) setCanvasPreview(getDataUrl())
-      setMode(usePipeline ? 'polish' : 'blend')
+      setMode(usePipeline ? 'compose' : 'blend')
     } else {
       setPreview(null)
       setPlacedPreview(null)
@@ -218,6 +218,30 @@ export function RefinePanel({ open, onClose, onRefined, onAddToTimeline, element
               </div>
             )}
 
+            {/* Mode selector */}
+            <div className="mb-4">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-[#8C8C8C] font-[Lato] block mb-2">
+                {usePipeline ? 'Pipeline Mode' : 'Refinement Mode'}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {modes.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setMode(m.id)}
+                    disabled={refining}
+                    className={`text-left px-3 py-2.5 rounded-xl border transition-all cursor-pointer ${
+                      mode === m.id
+                        ? 'border-[#171717] bg-[rgba(0,0,0,0.04)] shadow-sm'
+                        : 'border-[#D2D2D2] bg-white hover:border-[#999] hover:bg-[#F0F0F0]'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold text-[#171717] block">{m.label}</span>
+                    <span className="text-[9px] text-[#646464] mt-0.5 block leading-snug">{m.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Canvas preview */}
             {canvasPreview && (
               <div className="rounded-xl overflow-hidden border border-[#D2D2D2] mb-4 shadow-sm">
@@ -261,30 +285,6 @@ export function RefinePanel({ open, onClose, onRefined, onAddToTimeline, element
                 </div>
               </div>
             )}
-
-            {/* Mode selector */}
-            <div className="mb-4">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-[#8C8C8C] font-[Lato] block mb-2">
-                {usePipeline ? 'Pipeline Mode' : 'Refinement Mode'}
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {modes.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => setMode(m.id)}
-                    disabled={refining}
-                    className={`text-left px-3 py-2.5 rounded-xl border transition-all cursor-pointer ${
-                      mode === m.id
-                        ? 'border-[#171717] bg-[rgba(0,0,0,0.04)] shadow-sm'
-                        : 'border-[#D2D2D2] bg-white hover:border-[#999] hover:bg-[#F0F0F0]'
-                    }`}
-                  >
-                    <span className="text-[11px] font-semibold text-[#171717] block">{m.label}</span>
-                    <span className="text-[9px] text-[#646464] mt-0.5 block leading-snug">{m.description}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {/* Custom prompt */}
             {mode === 'custom' && (

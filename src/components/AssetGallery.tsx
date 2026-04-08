@@ -25,7 +25,7 @@ export function AssetGallery({ type, label, onSelect, onView }: AssetGalleryProp
     <div className="flex flex-col h-full min-h-0">
       {/* Section header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] shrink-0">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-muted)]">{label}</h3>
+        <h3 className="text-[14px] font-bold uppercase tracking-widest text-white bg-black px-3 py-1 rounded-r-full">{label}</h3>
         <div className="flex gap-1">
           <button
             onClick={() => fileRef.current?.click()}
